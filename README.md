@@ -83,7 +83,7 @@ Edit the constants at the top of `main.py`:
 BATCH_SIZE         = 100                        # Articles per batch
 POLL_INTERVAL_SECONDS = 5                       # Seconds to wait when queue is empty
 VLLM_BASE_URL      = "http://localhost:8001"    # vLLM server address
-MODEL_NAME         = "Qwen/Qwen2.5-7B-Instruct" # Model loaded in vLLM
+MODEL_NAME         = "Qwen/Qwen3.5-4B"          # Model loaded in vLLM
 API_BASE_URL       = "http://localhost:8000"    # Article management server
 ```
 
@@ -110,7 +110,7 @@ On startup the pipeline:
 python CheckLibraries.py
 
 # Check vLLM server and model
-python CheckVLLM.py --url http://localhost:8001 --model Qwen/Qwen2.5-7B-Instruct
+python CheckVLLM.py --url http://localhost:8001 --model Qwen/Qwen3.5-4B
 ```
 
 ---
