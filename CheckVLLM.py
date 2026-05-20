@@ -95,7 +95,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Check vLLM server and model readiness.")
-    parser.add_argument("--url", default="http://localhost:8001", help="vLLM base URL")
+    parser.add_argument("--url", default="http://localhost:8000", help="vLLM base URL")
     parser.add_argument("--model", default="Qwen/Qwen3.5-4B", help="Model name to verify")
     args = parser.parse_args()
 

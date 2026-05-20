@@ -1,4 +1,5 @@
 import json
+import re
 from openai import OpenAI
 from tqdm import tqdm
 from DTO.SimpleArticleLabelDTO import SimpleArticleLabelDTO
@@ -46,10 +47,28 @@ class ArticleLabelHelper:
             f"Abstract:\n{article.AbstractText or 'N/A'}"
         )
 
-    def _parse_response(self, pmc_id: int, raw_content: str) -> ArticleLlmResponse | None:
-        """Parse the raw JSON string from the LLM into an ArticleLlmResponse. Returns None if parsing fails."""
+    def _extract_json(self, text: str) -> str:
+        """
+        Extract a JSON object from text that may contain surrounding content.
+        When vLLM reasoning-parser is active, message.content is already clean JSON.
+        This fallback handles cases where extra text appears around the JSON block.
+        """
+        text = text.strip()
         try:
-            data = json.loads(raw_content)
+            json.loads(text)
+            return text
+        except json.JSONDecodeError:
+            pass
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match:
+            return match.group(0)
+        return text
+
+    def _parse_response(self, pmc_id: int, raw_content: str) -> ArticleLlmResponse | None:
+        """Extract and parse the JSON answer into an ArticleLlmResponse. Returns None if parsing fails."""
+        try:
+            clean = self._extract_json(raw_content)
+            data = json.loads(clean)
 
             raw_label = data.get("label", "").upper().strip()
             label_map = {"WHITE": 1, "BLACK": 2, "GRAY": 3}
@@ -88,8 +107,8 @@ class ArticleLabelHelper:
                     {"role": "system", "content": _SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.1,
-                max_tokens=150,
+                temperature=0.6,
+                max_tokens=512,
             )
             raw_content = response.choices[0].message.content
             return self._parse_response(article.PmcId, raw_content)

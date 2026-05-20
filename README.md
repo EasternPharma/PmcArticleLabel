@@ -54,7 +54,14 @@ PmcArticleLabel/
 
 - Python 3.10+
 - A running **article management server** (REST API)
-- A running **vLLM server** with a loaded chat model
+- A running **vLLM server** with a loaded chat model:
+
+```bash
+VLLM_USE_FLASHINFER_SAMPLER=0 vllm serve Qwen/Qwen3.5-4B \
+  --dtype auto --enforce-eager \
+  --max-model-len 2048 --gpu-memory-utilization 0.85 \
+  --reasoning-parser qwen3 --port 8000
+```
 
 ### Python dependencies
 
@@ -82,7 +89,7 @@ Edit the constants at the top of `main.py`:
 ```python
 BATCH_SIZE         = 100                        # Articles per batch
 POLL_INTERVAL_SECONDS = 5                       # Seconds to wait when queue is empty
-VLLM_BASE_URL      = "http://localhost:8001"    # vLLM server address
+VLLM_BASE_URL      = "http://localhost:8000"    # vLLM server address
 MODEL_NAME         = "Qwen/Qwen3.5-4B"          # Model loaded in vLLM
 API_BASE_URL       = "http://localhost:8000"    # Article management server
 ```
@@ -110,7 +117,7 @@ On startup the pipeline:
 python CheckLibraries.py
 
 # Check vLLM server and model
-python CheckVLLM.py --url http://localhost:8001 --model Qwen/Qwen3.5-4B
+python CheckVLLM.py --url http://localhost:8000 --model Qwen/Qwen3.5-4B
 ```
 
 ---
