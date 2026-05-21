@@ -91,6 +91,7 @@ class ArticleLabelHelper:
                 PmcId=pmc_id,
                 Label=label,
                 Confidence=confidence,
+                LlmModel=self.model_name,
                 Reasoning=reason,
             )
         except Exception as e:

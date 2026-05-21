@@ -15,10 +15,10 @@ class ApiCall:
         self.session.headers.update({"Content-Type": "application/json"})
 
     def get_unlabeled_articles(self, batch_size: int = 100) -> list[SimpleArticleLabelDTO]:
-        """Fetch a batch of unlabeled articles from the server. Returns an empty list on failure."""
-        url = f"{self.base_url}/api/v1/articles/unlabeled"
+        """Claim a batch of unlabeled articles for LLM labeling. Returns an empty list on failure."""
+        url = f"{self.base_url}/articles/llm/unlabeled"
         try:
-            response = self.session.get(url, params={"batch_size": batch_size}, timeout=self.timeout)
+            response = self.session.post(url, params={"batch_size": batch_size}, timeout=self.timeout)
             response.raise_for_status()
         except requests.RequestException as e:
             print(f"[ApiCall] Failed to fetch unlabeled articles: {e}")
@@ -31,11 +31,11 @@ class ApiCall:
             return []
 
     def update_article_labels(self, results: list[ArticleLlmResponse]) -> bool:
-        """Send labeling results back to the server. Returns True on success, False on failure."""
-        url = f"{self.base_url}/api/v1/articles/labels"
+        """Submit LLM labeling results to the server. Returns True on success, False on failure."""
+        url = f"{self.base_url}/articles/llm/labels"
         payload = [result.model_dump() for result in results]
         try:
-            response = self.session.put(url, json=payload, timeout=self.timeout)
+            response = self.session.post(url, json=payload, timeout=self.timeout)
             response.raise_for_status()
             return True
         except requests.RequestException as e:

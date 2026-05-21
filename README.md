@@ -93,7 +93,7 @@ BATCH_SIZE         = 100                        # Articles per batch
 POLL_INTERVAL_SECONDS = 5                       # Seconds to wait when queue is empty
 VLLM_BASE_URL      = "http://localhost:8000"    # vLLM server address
 MODEL_NAME         = "Qwen/Qwen3.5-4B"          # Model loaded in vLLM
-API_BASE_URL       = "http://localhost:8000"    # Article management server
+API_BASE_URL       = "http://localhost:8080"    # Article management server
 ```
 
 ---
