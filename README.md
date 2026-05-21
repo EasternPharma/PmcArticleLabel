@@ -1,6 +1,8 @@
 # PmcArticleLabel
 
-An automated pipeline for classifying PubMed Central (PMC) articles using a vLLM inference server. Each article is labeled as **WHITE**, **BLACK**, or **GRAY** based on its relevance to Human Complementary and Alternative Medicine (CAM) and Human Nutrition.
+Researchers working in the field of Complementary and Alternative Medicine (CAM) and Human Nutrition face a significant challenge: PubMed Central contains millions of articles, but only a fraction are actually relevant to their domain. Manually screening each article is time-consuming and does not scale.
+
+**PmcArticleLabel** solves this by automating the screening process. It connects to an article management server, pulls batches of unreviewed PMC articles, and sends each one to a locally-hosted **Qwen3** language model via a **vLLM** inference server. The model reads the title and abstract and assigns one of three labels — **WHITE** (in scope), **BLACK** (out of scope), or **GRAY** (ambiguous) — along with a confidence score and a one-sentence reason. The results are pushed back to the server automatically, creating a continuous, unattended labeling loop.
 
 ---
 
