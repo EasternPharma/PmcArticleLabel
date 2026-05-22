@@ -12,6 +12,9 @@ API_BASE_URL  = "http://localhost:1368"
 VLLM_BASE_URL = "http://localhost:8000"
 MODEL_NAME    = "Qwen/Qwen3.5-4B"
 
+_LABEL_NAMES = {1: "White", 2: "Black", 3: "Gray", 0: "Unknown"}
+
+
 def run_batch(api_client: ApiCall, label_helper: ArticleLabelHelper) -> bool:
     """Fetch one batch of unlabeled articles, label them, and push results to the server. Returns True if work was done."""
     articles = api_client.get_unlabeled_articles(batch_size=BATCH_SIZE)
@@ -26,6 +29,16 @@ def run_batch(api_client: ApiCall, label_helper: ArticleLabelHelper) -> bool:
     success = api_client.update_article_labels(results)
     if success:
         print(f"[main] Updated {len(results)}/{len(articles)} articles.")
+
+    print("[main] Batch summary (PmcId, Label, Confidence):")
+    for r in results:
+        print(f"  {r.PmcId}, {_LABEL_NAMES.get(r.Label, 'Unknown')}, {r.Confidence:.2f}")
+
+    white = sum(1 for r in results if r.Label == 1)
+    gray  = sum(1 for r in results if r.Label == 3)
+    black = sum(1 for r in results if r.Label == 2)
+    print(f"[main] Total: {len(results)}, White: {white}, Gray: {gray}, Black: {black}")
+
     return success
 
 
