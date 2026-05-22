@@ -56,11 +56,16 @@ def check_inference(vllm_base_url: str, model_name: str) -> bool:
             model=model_name,
             messages=[{"role": "user", "content": SMOKE_TEST_PROMPT}],
             temperature=0.1,
-            max_tokens=512,
+            max_tokens=4096,
         )
         message = response.choices[0].message
-        content           = message.content or ""
-        reasoning_content = getattr(message, "reasoning_content", None) or ""
+        content = message.content or ""
+        # vLLM exposes reasoning under .reasoning; some builds use .reasoning_content
+        reasoning_content = (
+            getattr(message, "reasoning", None)
+            or getattr(message, "reasoning_content", None)
+            or ""
+        )
         answer = (content or reasoning_content).strip()
 
         if answer:
