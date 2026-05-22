@@ -59,14 +59,20 @@ def check_inference(vllm_base_url: str, model_name: str) -> bool:
             max_tokens=512,
         )
         message = response.choices[0].message
-        # Reasoning models (--reasoning-parser) put the final answer in content
-        # and the chain-of-thought in reasoning_content. Either being non-empty is enough.
-        answer = (message.content or "") or (getattr(message, "reasoning_content", None) or "")
-        answer = answer.strip()
+        content           = message.content or ""
+        reasoning_content = getattr(message, "reasoning_content", None) or ""
+        answer = (content or reasoning_content).strip()
+
         if answer:
             print(f"  [OK]     Inference works. Response: \"{answer[:80]}\"")
             return True
-        print("  [ERROR]  Model returned an empty response.")
+
+        # Debug: dump the raw message so we can see what the model actually returned
+        print(f"  [ERROR]  Model returned an empty response.")
+        print(f"  [DEBUG]  finish_reason : {response.choices[0].finish_reason}")
+        print(f"  [DEBUG]  content       : {repr(content)}")
+        print(f"  [DEBUG]  reasoning     : {repr(reasoning_content)}")
+        print(f"  [DEBUG]  full message  : {message}")
         return False
     except Exception as e:
         print(f"  [ERROR]  Inference failed: {e}")
