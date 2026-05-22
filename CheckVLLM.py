@@ -45,7 +45,9 @@ def check_model_loaded(vllm_base_url: str, model_name: str) -> bool:
 
 
 def check_inference(vllm_base_url: str, model_name: str) -> bool:
-    """Send a simple prompt to the model and verify a non-empty response is returned."""
+    """Send a simple prompt to the model and verify a non-empty response is returned.
+    Handles reasoning models (e.g. Qwen3) where content may be None and the answer
+    lives in reasoning_content instead."""
     from openai import OpenAI
 
     client = OpenAI(base_url=f"{vllm_base_url}/v1", api_key="not-required")
@@ -54,11 +56,15 @@ def check_inference(vllm_base_url: str, model_name: str) -> bool:
             model=model_name,
             messages=[{"role": "user", "content": SMOKE_TEST_PROMPT}],
             temperature=0.0,
-            max_tokens=20,
+            max_tokens=150,
         )
-        answer = response.choices[0].message.content.strip()
+        message = response.choices[0].message
+        # Reasoning models (--reasoning-parser) put the final answer in content
+        # and the chain-of-thought in reasoning_content. Either being non-empty is enough.
+        answer = (message.content or "") or (getattr(message, "reasoning_content", None) or "")
+        answer = answer.strip()
         if answer:
-            print(f"  [OK]     Inference works. Response: \"{answer}\"")
+            print(f"  [OK]     Inference works. Response: \"{answer[:80]}\"")
             return True
         print("  [ERROR]  Model returned an empty response.")
         return False

@@ -131,7 +131,8 @@ class ArticleLabelHelper:
                 temperature=0.1,
                 max_tokens=512,
             )
-            raw_content = response.choices[0].message.content
+            message = response.choices[0].message
+            raw_content = (message.content or "") or (getattr(message, "reasoning_content", None) or "")
             return self._parse_response(article.PmcId, raw_content)
         except Exception as e:
             print(f"[ArticleLabelHelper] vLLM call failed for PmcId={article.PmcId}: {e}")
