@@ -55,8 +55,8 @@ def check_inference(vllm_base_url: str, model_name: str) -> bool:
         response = client.chat.completions.create(
             model=model_name,
             messages=[{"role": "user", "content": SMOKE_TEST_PROMPT}],
-            temperature=0.0,
-            max_tokens=150,
+            temperature=0.1,
+            max_tokens=512,
         )
         message = response.choices[0].message
         # Reasoning models (--reasoning-parser) put the final answer in content
