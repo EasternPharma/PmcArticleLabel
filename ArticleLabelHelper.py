@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+from turtle import reset
 import aiohttp
 from DTO.SimpleArticleLabelDTO import SimpleArticleLabelDTO
 from DTO.ArticleLlmResponse import ArticleLlmResponse
@@ -44,6 +45,18 @@ Respond ONLY with valid JSON. No preamble, no markdown fences, no extra text.
     "confidence_score": <float 0.0–1.0>
 }
 """
+
+
+def _collect_task_result(
+    task: "asyncio.Task[ArticleLlmResponse]",
+    results: list,
+) -> None:
+    """Append the task result to *results*, or log and skip if the task raised."""
+    exc = task.exception()
+    if exc is not None:
+        print(f"[ArticleLabelHelper] Task raised an unhandled exception: {exc}")
+    else:
+        results.append(task.result())
 
 
 class ArticleLabelHelper:
@@ -90,6 +103,15 @@ class ArticleLabelHelper:
         max_tokens: int,
         temperature: float,
     ) -> ArticleLlmResponse:
+        def _error_response(reason: str) -> ArticleLlmResponse:
+            return ArticleLlmResponse(
+                PmcId=pmc_id,
+                Label=0,
+                Confidence=0.0,
+                LlmModel=self.model_name,
+                Reasoning=reason,
+            )
+
         payload = {
             "model": self.model_name,
             "messages": [{"role": "user", "content": prompt}],
@@ -97,10 +119,34 @@ class ArticleLabelHelper:
             "temperature": temperature,
             "chat_template_kwargs": {"enable_thinking": False},
         }
-        async with session.post(self.llm_cal_url, json=payload) as resp:
-            resp.raise_for_status()
-            body = await resp.json()
-        content = body["choices"][0]["message"].get("content") or ""
+        try:
+            async with session.post(self.llm_cal_url, json=payload) as resp:
+                if resp.status != 200:
+                    text = await resp.text()
+                    print(
+                        f"[ArticleLabelHelper] HTTP {resp.status} for PmcId={pmc_id}: {text[:200]}"
+                    )
+                    return _error_response(f"HTTP error {resp.status}")
+                body = await resp.json()
+        except aiohttp.ClientConnectionError as e:
+            print(f"[ArticleLabelHelper][_llm_call function] Connection error for PmcId={pmc_id}: {e}")
+            return _error_response(f"Connection error: {e}")
+        except asyncio.TimeoutError:
+            print(f"[ArticleLabelHelper][_llm_call function] Request timed out for PmcId={pmc_id}")
+            return _error_response("Request timed out")
+        except aiohttp.ClientError as e:
+            print(f"[ArticleLabelHelper][_llm_call function] Client error for PmcId={pmc_id}: {e}")
+            return _error_response(f"Client error: {e}")
+        except Exception as e:
+            print(f"[ArticleLabelHelper][_llm_call function] Unexpected error during HTTP call for PmcId={pmc_id}: {e}")
+            return _error_response(f"Unexpected error: {e}")
+
+        try:
+            content = body["choices"][0]["message"].get("content") or ""
+        except (KeyError, IndexError, TypeError) as e:
+            print(f"[ArticleLabelHelper][_llm_call function] Malformed response body for PmcId={pmc_id}: {e} | body={str(body)[:200]}")
+            return _error_response(f"Malformed response: {e}")
+
         return self._parse_response(pmc_id, content)
 
     async def run_batch(
@@ -129,54 +175,75 @@ class ArticleLabelHelper:
                         pending, return_when=asyncio.FIRST_COMPLETED
                     )
                     for t in done:
-                        results.append(t.result())
+                        _collect_task_result(t, results)
 
             if pending:
                 done, _ = await asyncio.wait(pending)
                 for t in done:
-                    results.append(t.result())
+                    _collect_task_result(t, results)
 
         return results
 
     def _parse_response(self, pmc_id: int, raw_content: str) -> ArticleLlmResponse:
         """Extract and parse the JSON answer into an ArticleLlmResponse. Returns Label=0 on parse failure."""
-        try:
-            clean = self._extract_json(raw_content)
-            data = json.loads(clean)
+        _RED   = "\033[31m"
+        _RESET = "\033[0m"
 
-            raw_label = data.get("label", "").upper().strip()
-            label_map = {"WHITE": 1, "BLACK": 2, "GRAY": 3}
-            label = label_map.get(raw_label, 0)
-
-            reason = data.get("reason") or data.get("reasoning")
-
-            raw_confidence = data.get("confidence_score")
-            confidence = 0.0
-            if raw_confidence is not None:
-                try:
-                    confidence = float(raw_confidence)
-                    if confidence > 1.0:
-                        confidence = confidence / 100.0
-                    confidence = max(0.0, min(1.0, confidence))
-                except (ValueError, TypeError):
-                    confidence = 0.0
-
-            return ArticleLlmResponse(
-                PmcId=pmc_id,
-                Label=label,
-                Confidence=confidence,
-                LlmModel=self.model_name,
-                Reasoning=reason,
-            )
-        except Exception as e:
-            print(f"[ArticleLabelHelper] Failed to parse response for PmcId={pmc_id}: {e}")
+        def _error(reason: str, exc: Exception | None = None) -> ArticleLlmResponse:
+            msg = f"[ArticleLabelHelper][_parse_response] PmcId={pmc_id}: {reason}"
+            if exc is not None:
+                msg += f" | {exc}"
+            print(f"{_RED}{msg}{_RESET}")
             return ArticleLlmResponse(
                 PmcId=pmc_id,
                 Label=0,
                 Confidence=0.0,
                 LlmModel=self.model_name,
-                Reasoning=f"Parse error: {e}",
+                Reasoning=reason if exc is None else f"{reason}: {exc}",
             )
+
+        if not raw_content or not raw_content.strip():
+            return _error("Empty response content")
+
+        try:
+            clean = self._extract_json(raw_content)
+        except Exception as e:
+            return _error("Failed to extract JSON from response", e)
+
+        try:
+            data = json.loads(clean)
+        except json.JSONDecodeError as e:
+            return _error(f"JSON decode failed (content={clean[:120]!r})", e)
+
+        if not isinstance(data, dict):
+            return _error(f"Expected a JSON object, got {type(data).__name__}")
+
+        label_map = {"WHITE": 1, "BLACK": 2, "GRAY": 3}
+        raw_label = (data.get("label") or "").upper().strip()
+        label = label_map.get(raw_label, 0)
+        if label == 0:
+            print(f"[ArticleLabelHelper][_parse_response] PmcId={pmc_id}: unrecognized label {raw_label!r}, defaulting to 0")
+
+        reason: str | None = data.get("reason") or data.get("reasoning") or None
+
+        raw_confidence = data.get("confidence_score")
+        confidence = 0.0
+        if raw_confidence is not None:
+            try:
+                confidence = float(raw_confidence)
+                if confidence > 1.0:
+                    confidence = confidence / 100.0
+                confidence = max(0.0, min(1.0, confidence))
+            except (ValueError, TypeError):
+                print(f"[ArticleLabelHelper][_parse_response] PmcId={pmc_id}: invalid confidence_score {raw_confidence!r}, defaulting to 0.0")
+
+        return ArticleLlmResponse(
+            PmcId=pmc_id,
+            Label=label,
+            Confidence=confidence,
+            LlmModel=self.model_name,
+            Reasoning=reason,
+        )
 
     def label_batch(self, articles: list[SimpleArticleLabelDTO]) -> list[ArticleLlmResponse]:
         """Label a list of articles in parallel via vLLM and return results."""

@@ -34,10 +34,20 @@ def run_batch(api_client: ApiCall, label_helper: ArticleLabelHelper) -> bool:
     for r in results:
         print(f"  {r.PmcId}, {_LABEL_NAMES.get(r.Label, 'Unknown')}, {r.Confidence:.2f}")
 
+    _WHITE = "\033[97m"
+    _GRAY  = "\033[90m"
+    _RED   = "\033[31m"
+    _RESET = "\033[0m"
+
     white = sum(1 for r in results if r.Label == 1)
     gray  = sum(1 for r in results if r.Label == 3)
     black = sum(1 for r in results if r.Label == 2)
-    print(f"[main] Total: {len(results)}, White: {white}, Gray: {gray}, Black: {black}")
+    print(
+        f"[main] Total: {len(results)}, "
+        f"{_WHITE}White: {white}{_RESET}, "
+        f"{_GRAY}Gray: {gray}{_RESET}, "
+        f"{_RED}Black: {black}{_RESET}"
+    )
 
     return success
 
