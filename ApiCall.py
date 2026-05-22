@@ -12,7 +12,10 @@ class ApiCall:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.session = requests.Session()
-        self.session.headers.update({"Content-Type": "application/json"})
+        self.session.headers.update({
+            "Content-Type": "application/json",
+            "app_sec": "bregulator",
+        })
 
     def get_unlabeled_articles(self, batch_size: int = 100) -> list[SimpleArticleLabelDTO]:
         """Claim a batch of unlabeled articles for LLM labeling. Returns an empty list on failure."""
