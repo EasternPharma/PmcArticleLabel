@@ -6,7 +6,7 @@ Safe to run in Google Colab — does NOT call sys.exit() when used as a module.
 import sys
 import requests
 
-SMOKE_TEST_PROMPT = "Where is the capital of United States? Short answer, just the city name."
+SMOKE_TEST_PROMPT = "Where is the capital of United States? Short answer, just the city name. /no_think"
 
 
 def check_server_reachable(vllm_base_url: str) -> bool:
@@ -56,7 +56,7 @@ def check_inference(vllm_base_url: str, model_name: str) -> bool:
             model=model_name,
             messages=[{"role": "user", "content": SMOKE_TEST_PROMPT}],
             temperature=0.1,
-            max_tokens=4096,
+            max_tokens=1500,
         )
         message = response.choices[0].message
         content = message.content or ""
