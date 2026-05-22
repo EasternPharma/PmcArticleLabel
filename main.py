@@ -8,7 +8,7 @@ from ArticleLabelHelper import ArticleLabelHelper
 
 BATCH_SIZE = 100
 POLL_INTERVAL_SECONDS = 5
-API_BASE_URL  = "http://localhost:8080"
+API_BASE_URL  = "http://localhost:1368"
 VLLM_BASE_URL = "http://localhost:8000"
 MODEL_NAME    = "Qwen/Qwen3.5-4B"
 
