@@ -13,17 +13,16 @@ class ApiCall:
         self.session = requests.Session()
         self.session.headers.update({
             "Content-Type": "application/json",
-            "app_sec": "bregulator",
+            "app-sec": "bregulator",
         })
         if not self.health_check():
             raise ConnectionError(f"[ApiCall] API server is not reachable at {self.base_url}")
 
     def health_check(self) -> bool:
-        """Check if the API is healthy."""
+        """Check if the API server is reachable (any HTTP response is accepted)."""
         url = f"{self.base_url}/"
         try:
-            response = self.session.get(url, timeout=self.timeout)
-            response.raise_for_status()
+            self.session.get(url, timeout=self.timeout)
             return True
         except requests.RequestException as e:
             print(f"[ApiCall] Failed to check health: {e}")
