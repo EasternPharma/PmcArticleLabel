@@ -5,31 +5,45 @@ from tqdm import tqdm
 from DTO.SimpleArticleLabelDTO import SimpleArticleLabelDTO
 from DTO.ArticleLlmResponse import ArticleLlmResponse
 
-_SYSTEM_PROMPT = """You are a specialized AI trained to classify biomedical articles based on their relevance to Human Complementary and Alternative Medicine (CAM) and Human Nutrition.
+_SYSTEM_PROMPT = """#Role#
+You are a specialized biomedical literature classifier. You determine whether scientific articles fall within the scope of Human Complementary and Alternative Medicine (CAM) or Human Nutrition.
 
-Objective:
-Analyze the provided article and assign it one of the following categories:
+#Definitions#
+===
+WHITE – Clearly IN scope: the article studies a human application of CAM or nutrition.
+BLACK – Clearly OUT of scope: no meaningful connection to human CAM or nutrition.
+GRAY  – Borderline: mixed signals, animal-only studies with human implications, or genuinely ambiguous relevance.
+===
 
-- "WHITE" – Clearly within the scope of human CAM or human nutrition.
-- "BLACK" – Clearly outside the scope.
-- "GRAY" – Borderline, unclear, or ambiguous relevance.
+#Inclusion criteria for WHITE#
+The article must involve HUMAN subjects (or direct human application intent) AND at least one of:
+- Herbal / botanical therapies (ginseng, turmeric, echinacea, etc.)
+- Dietary or natural supplements (vitamins, minerals, probiotics, amino acids, omega-3s)
+- Functional foods or nutraceuticals (curcumin, polyphenols, bioactive food compounds)
+- Traditional medicine systems (Ayurveda, TCM, Unani, Naturopathy)
+- Essential oils, medicinal mushrooms, sports nutrition
+- Any naturally-derived health intervention NOT classified as a pharmaceutical drug
 
-INCLUSION CRITERIA ("WHITE"):
-An article qualifies as "WHITE" if it involves **human applications** of any of the following:
-- Herbal medicine or botanical therapies (e.g., ginseng, turmeric)
-- Natural or dietary supplements (vitamins, probiotics, amino acids, minerals)
-- Functional foods or nutraceuticals with bioactive compounds (e.g., curcumin)
-- Traditional medicine systems (e.g., Ayurveda, Chinese medicine)
-- Essential oils, medicinal mushrooms, sports nutrition products
-- Any naturally derived health intervention **not classified as a pharmaceutical**
+#Automatic BLACK signals#
+- Pure animal or in-vitro study with no stated human translation intent
+- Industrial / agricultural / veterinary applications only
+- Pharmaceutical drug trials (synthetic molecules, biologics)
+- Basic biochemistry with no health intervention angle
 
-OUTPUT FORMAT:
-Respond only with valid JSON in the following format, no extra text:
+#Task steps#
+1. Identify whether the article involves HUMAN subjects or direct human applications.
+2. Check whether the intervention or substance qualifies under the inclusion criteria above.
+3. If both are true → WHITE. If neither → BLACK. If uncertain on either → GRAY.
+4. Assign a confidence_score: how certain are you of your label (0.0 = total uncertainty, 1.0 = certain).
+
+#Output format#
+Respond ONLY with valid JSON. No preamble, no markdown fences, no extra text.
 {
     "label": "WHITE" | "BLACK" | "GRAY",
-    "reason": "1 sentence explanation",
-    "confidence_score": float between 0.0 and 1.0
-}"""
+    "reason": "<one sentence, cite the key deciding factor>",
+    "confidence_score": <float 0.0–1.0>
+}
+"""
 
 
 class ArticleLabelHelper:
@@ -64,8 +78,8 @@ class ArticleLabelHelper:
             return match.group(0)
         return text
 
-    def _parse_response(self, pmc_id: int, raw_content: str) -> ArticleLlmResponse | None:
-        """Extract and parse the JSON answer into an ArticleLlmResponse. Returns None if parsing fails."""
+    def _parse_response(self, pmc_id: int, raw_content: str) -> ArticleLlmResponse:
+        """Extract and parse the JSON answer into an ArticleLlmResponse. Returns Label=0 on parse failure."""
         try:
             clean = self._extract_json(raw_content)
             data = json.loads(clean)
@@ -96,10 +110,16 @@ class ArticleLabelHelper:
             )
         except Exception as e:
             print(f"[ArticleLabelHelper] Failed to parse response for PmcId={pmc_id}: {e}")
-            return None
+            return ArticleLlmResponse(
+                PmcId=pmc_id,
+                Label=0,
+                Confidence=0.0,
+                LlmModel=self.model_name,
+                Reasoning=f"Parse error: {e}",
+            )
 
     def label_article(self, article: SimpleArticleLabelDTO) -> ArticleLlmResponse | None:
-        """Send a single article to the vLLM model and return the parsed label result. Returns None on error."""
+        """Send a single article to the vLLM model and return the parsed label result. Returns None on network/API error."""
         prompt = self.build_prompt(article)
         try:
             response = self.client.chat.completions.create(
@@ -108,7 +128,7 @@ class ArticleLabelHelper:
                     {"role": "system", "content": _SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.6,
+                temperature=0.1,
                 max_tokens=512,
             )
             raw_content = response.choices[0].message.content
@@ -118,10 +138,10 @@ class ArticleLabelHelper:
             return None
 
     def label_batch(self, articles: list[SimpleArticleLabelDTO]) -> list[ArticleLlmResponse]:
-        """Label a list of articles sequentially, showing a progress bar. Skips articles that fail."""
+        """Label a list of articles sequentially, showing a progress bar. Skips only on network/API failure."""
         results: list[ArticleLlmResponse] = []
         for article in tqdm(articles, desc="Labeling articles", unit="article", leave=False):
             result = self.label_article(article)
-            if result is not None:
+            if result is not None:  # None means vLLM call itself failed — skip those
                 results.append(result)
         return results
