@@ -6,20 +6,13 @@ from CheckVLLM import main as check_vllm
 from ApiCall import ApiCall
 from ArticleLabelHelper import ArticleLabelHelper
 
-BATCH_SIZE = 100
+BATCH_SIZE = 50
 POLL_INTERVAL_SECONDS = 5
 API_BASE_URL  = "http://localhost:1368"
 VLLM_BASE_URL = "http://localhost:8000"
 MODEL_NAME    = "Qwen/Qwen3.5-4B"
 
-api_client = ApiCall(base_url=API_BASE_URL)
-label_helper = ArticleLabelHelper(
-    vllm_base_url=VLLM_BASE_URL,
-    model_name=MODEL_NAME,
-)
-
-
-def run_batch() -> bool:
+def run_batch(api_client: ApiCall, label_helper: ArticleLabelHelper) -> bool:
     """Fetch one batch of unlabeled articles, label them, and push results to the server. Returns True if work was done."""
     articles = api_client.get_unlabeled_articles(batch_size=BATCH_SIZE)
     if not articles:
@@ -47,8 +40,11 @@ def main():
 
     with tqdm(desc="Batches processed", unit="batch") as batch_bar:
         while True:
+            api_client = ApiCall(base_url=API_BASE_URL)
+            label_helper = ArticleLabelHelper(vllm_base_url=VLLM_BASE_URL, model_name=MODEL_NAME)
+
             try:
-                had_work = run_batch()
+                had_work = run_batch(api_client, label_helper)
                 if had_work:
                     total_batches += 1
                     batch_bar.update(1)

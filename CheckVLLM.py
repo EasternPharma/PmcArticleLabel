@@ -45,39 +45,29 @@ def check_model_loaded(vllm_base_url: str, model_name: str) -> bool:
 
 
 def check_inference(vllm_base_url: str, model_name: str) -> bool:
-    """Send a simple prompt to the model and verify a non-empty response is returned.
-    Handles reasoning models (e.g. Qwen3) where content may be None and the answer
-    lives in reasoning_content instead."""
-    from openai import OpenAI
-
-    client = OpenAI(base_url=f"{vllm_base_url}/v1", api_key="not-required")
+    """Send a simple prompt to the model and verify a non-empty response is returned."""
+    url = f"{vllm_base_url}/v1/chat/completions"
+    payload = {
+        "model": model_name,
+        "messages": [{"role": "user", "content": SMOKE_TEST_PROMPT}],
+        "temperature": 0.1,
+        "max_tokens": 1500,
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
     try:
-        response = client.chat.completions.create(
-            model=model_name,
-            messages=[{"role": "user", "content": SMOKE_TEST_PROMPT}],
-            temperature=0.1,
-            max_tokens=1500,
-        )
-        message = response.choices[0].message
-        content = message.content or ""
-        # vLLM exposes reasoning under .reasoning; some builds use .reasoning_content
-        reasoning_content = (
-            getattr(message, "reasoning", None)
-            or getattr(message, "reasoning_content", None)
-            or ""
-        )
-        answer = (content or reasoning_content).strip()
+        response = requests.post(url, json=payload, timeout=30)
+        response.raise_for_status()
+        body = response.json()
+        message = body["choices"][0]["message"]
+        answer = (message.get("content") or "").strip()
 
         if answer:
             print(f"  [OK]     Inference works. Response: \"{answer[:80]}\"")
             return True
 
-        # Debug: dump the raw message so we can see what the model actually returned
         print(f"  [ERROR]  Model returned an empty response.")
-        print(f"  [DEBUG]  finish_reason : {response.choices[0].finish_reason}")
-        print(f"  [DEBUG]  content       : {repr(content)}")
-        print(f"  [DEBUG]  reasoning     : {repr(reasoning_content)}")
-        print(f"  [DEBUG]  full message  : {message}")
+        print(f"  [DEBUG]  finish_reason : {body['choices'][0].get('finish_reason')}")
+        print(f"  [DEBUG]  content       : {repr(message.get('content'))}")
         return False
     except Exception as e:
         print(f"  [ERROR]  Inference failed: {e}")

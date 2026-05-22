@@ -1,5 +1,4 @@
 import requests
-from typing import Optional
 from DTO.SimpleArticleLabelDTO import SimpleArticleLabelDTO
 from DTO.ArticleLlmResponse import ArticleLlmResponse
 
@@ -16,8 +15,21 @@ class ApiCall:
             "Content-Type": "application/json",
             "app_sec": "bregulator",
         })
+        if not self.health_check():
+            raise ConnectionError(f"[ApiCall] API server is not reachable at {self.base_url}")
 
-    def get_unlabeled_articles(self, batch_size: int = 100) -> list[SimpleArticleLabelDTO]:
+    def health_check(self) -> bool:
+        """Check if the API is healthy."""
+        url = f"{self.base_url}/"
+        try:
+            response = self.session.get(url, timeout=self.timeout)
+            response.raise_for_status()
+            return True
+        except requests.RequestException as e:
+            print(f"[ApiCall] Failed to check health: {e}")
+            return False
+
+    def get_unlabeled_articles(self, batch_size: int = 50) -> list[SimpleArticleLabelDTO]:
         """Claim a batch of unlabeled articles for LLM labeling. Returns an empty list on failure."""
         url = f"{self.base_url}/articles/llm/unlabeled"
         try:

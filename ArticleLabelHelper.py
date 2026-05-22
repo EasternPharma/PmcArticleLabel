@@ -1,7 +1,7 @@
+import asyncio
 import json
 import re
-from openai import OpenAI
-from tqdm import tqdm
+import aiohttp
 from DTO.SimpleArticleLabelDTO import SimpleArticleLabelDTO
 from DTO.ArticleLlmResponse import ArticleLlmResponse
 
@@ -52,11 +52,15 @@ class ArticleLabelHelper:
     def __init__(self, vllm_base_url: str, model_name: str):
         """Initialize the vLLM client with the server URL and model name."""
         self.model_name = model_name
-        self.client = OpenAI(base_url=f"{vllm_base_url}/v1", api_key="not-required")
+        self.vllm_base_url = vllm_base_url
+        self.llm_cal_url = f"{vllm_base_url}/v1/chat/completions"
+        print(f"[ArticleLabelHelper] Initialized with vLLM base URL: {vllm_base_url}")
+        print(f"[ArticleLabelHelper] LLM call URL: {self.llm_cal_url}")
 
     def build_prompt(self, article: SimpleArticleLabelDTO) -> str:
         """Build the user-facing prompt text from an article's title and abstract."""
         return (
+            _SYSTEM_PROMPT + "\n\n"
             f"Title: {article.Title or 'N/A'}\n\n"
             f"Abstract:\n{article.AbstractText or 'N/A'}"
         )
@@ -77,6 +81,62 @@ class ArticleLabelHelper:
         if match:
             return match.group(0)
         return text
+    
+    async def _llm_call(
+        self,
+        session: aiohttp.ClientSession,
+        pmc_id: int,
+        prompt: str,
+        max_tokens: int,
+        temperature: float,
+    ) -> ArticleLlmResponse:
+        payload = {
+            "model": self.model_name,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
+        async with session.post(self.llm_cal_url, json=payload) as resp:
+            resp.raise_for_status()
+            body = await resp.json()
+        content = body["choices"][0]["message"].get("content") or ""
+        return self._parse_response(pmc_id, content)
+
+    async def run_batch(
+        self,
+        articles: list[SimpleArticleLabelDTO],
+        batch_size: int,
+        max_tokens: int = 512,
+        temperature: float = 0.1,
+    ) -> list[ArticleLlmResponse]:
+        results: list[ArticleLlmResponse] = []
+        connector = aiohttp.TCPConnector(limit=batch_size)
+        timeout = aiohttp.ClientTimeout(total=600)
+
+        async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+            pending: set[asyncio.Task[ArticleLlmResponse]] = set()
+
+            for article in articles:
+                prompt = self.build_prompt(article)
+                task = asyncio.create_task(
+                    self._llm_call(session, article.PmcId, prompt, max_tokens, temperature)
+                )
+                pending.add(task)
+
+                if len(pending) >= batch_size:
+                    done, pending = await asyncio.wait(
+                        pending, return_when=asyncio.FIRST_COMPLETED
+                    )
+                    for t in done:
+                        results.append(t.result())
+
+            if pending:
+                done, _ = await asyncio.wait(pending)
+                for t in done:
+                    results.append(t.result())
+
+        return results
 
     def _parse_response(self, pmc_id: int, raw_content: str) -> ArticleLlmResponse:
         """Extract and parse the JSON answer into an ArticleLlmResponse. Returns Label=0 on parse failure."""
@@ -118,31 +178,6 @@ class ArticleLabelHelper:
                 Reasoning=f"Parse error: {e}",
             )
 
-    def label_article(self, article: SimpleArticleLabelDTO) -> ArticleLlmResponse | None:
-        """Send a single article to the vLLM model and return the parsed label result. Returns None on network/API error."""
-        prompt = self.build_prompt(article)
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=[
-                    {"role": "system", "content": _SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.1,
-                max_tokens=512,
-            )
-            message = response.choices[0].message
-            raw_content = (message.content or "") or (getattr(message, "reasoning_content", None) or "")
-            return self._parse_response(article.PmcId, raw_content)
-        except Exception as e:
-            print(f"[ArticleLabelHelper] vLLM call failed for PmcId={article.PmcId}: {e}")
-            return None
-
     def label_batch(self, articles: list[SimpleArticleLabelDTO]) -> list[ArticleLlmResponse]:
-        """Label a list of articles sequentially, showing a progress bar. Skips only on network/API failure."""
-        results: list[ArticleLlmResponse] = []
-        for article in tqdm(articles, desc="Labeling articles", unit="article", leave=False):
-            result = self.label_article(article)
-            if result is not None:  # None means vLLM call itself failed — skip those
-                results.append(result)
-        return results
+        """Label a list of articles in parallel via vLLM and return results."""
+        return asyncio.run(self.run_batch(articles, batch_size=len(articles)))
